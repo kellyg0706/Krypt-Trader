@@ -43,9 +43,9 @@ def asset_enabled(cfg: dict, asset: str) -> bool:
 
 _DEFAULTS: dict[str, float] = {
     "time_delay_min": 8.0,
-    "entry_threshold": 0.95,
+    "entry_threshold": 0.75,
     "exit_threshold": 0.40,
-    "entry_max": 0.98,
+    "entry_max": 0.92,
     "min_delta_pct": 0.0,
     "entry_diff": 0.02,
 }

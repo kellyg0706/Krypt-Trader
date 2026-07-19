@@ -155,9 +155,9 @@ export function Crypto15mPage() {
               value={status?.sizing?.mode === 'balance_pct'
                 ? `${(status.sizing.balancePct * 100).toFixed(1)}% bal`
                   + (status.sizing.balanceUsd > 0 ? ` (~${status.sizing.estContracts}c)` : '')
-                : `${status?.orderSize ?? 1}c`}
+                : `${status?.orderSize ?? 55}c`}
             />
-            <KV label="Max open" value={`${status?.maxConcurrent ?? 3}`} />
+            <KV label="Max open" value={`${status?.maxConcurrent ?? 7}`} />
             <KV label="Open" value={`${status?.stats.openCount ?? 0}`} />
             <KV label="W / L" value={`${status?.stats.wins ?? 0} / ${status?.stats.losses ?? 0}`} />
             <KV
@@ -402,10 +402,10 @@ function KV({ label, value, accent }: { label: string; value: string; accent?: '
 
 
 const C15_DEFAULTS = {
-  directionMode: 'favorite' as 'favorite' | 'contrarian',
+  directionMode: 'favorite' as 'favorite' | 'contrarian' | 'model',
   timeDelayMin: 8,
-  entryThreshold: 0.70,
-  entryMax: 0.98,
+  entryThreshold: 0.75,
+  entryMax: 0.92,
   exitThreshold: 0.4,
   stopSlippageCents: 0,
   takeProfitCents: 0,
@@ -417,12 +417,17 @@ const C15_DEFAULTS = {
   minMacdHist: 0,
   minDeltaPct: 0,
   entryDiff: 0.02,
-  entryStyle: 'maker' as 'maker' | 'taker',
+  entryStyle: 'taker' as 'maker' | 'taker',
   makerCancelMin: 1,
   hoursStartUtc: 0,
   hoursEndUtc: 24,
-  orderSize: 1,
-  maxConcurrent: 3,
+  orderSize: 55,
+  maxConcurrent: 7,
+  maxTotalPct: 0.50,
+  sizingMode: 'fixed' as 'fixed' | 'balance_pct',
+  indicatorDetect: true,
+  spotWs: true,
+  strictThreshold: true,
 };
 
 const C15_PRESETS: { id: string; name: string; hint: string; patch: Partial<TraderConfig> }[] = [
@@ -559,6 +564,13 @@ function StrategySettings({
     crypto15mMakerCancelMin: C15_DEFAULTS.makerCancelMin,
     crypto15mHoursStartUtc: C15_DEFAULTS.hoursStartUtc,
     crypto15mHoursEndUtc: C15_DEFAULTS.hoursEndUtc,
+    crypto15mOrderSize: C15_DEFAULTS.orderSize,
+    crypto15mMaxConcurrent: C15_DEFAULTS.maxConcurrent,
+    crypto15mMaxTotalPct: C15_DEFAULTS.maxTotalPct,
+    crypto15mSizingMode: C15_DEFAULTS.sizingMode,
+    crypto15mIndicatorDetect: C15_DEFAULTS.indicatorDetect,
+    crypto15mSpotWs: C15_DEFAULTS.spotWs,
+    crypto15mStrictThreshold: C15_DEFAULTS.strictThreshold,
   });
 
   return (
@@ -803,7 +815,7 @@ function StrategySettings({
         </div>
         <NumField
           label="Max total 15m" suffix="% bal" min={0} max={100} step={1}
-          value={+(num('crypto15mMaxTotalPct', 0.10) * 100).toFixed(1)}
+          value={+(num('crypto15mMaxTotalPct', C15_DEFAULTS.maxTotalPct) * 100).toFixed(1)}
           hint="Aggregate cap: total money committed to open 15m bets can't exceed this % of your bankroll (order sizes are trimmed to fit). 0 = off."
           onCommit={(v) => void update({ crypto15mMaxTotalPct: Math.max(0, Math.min(100, v)) / 100 })}
         />

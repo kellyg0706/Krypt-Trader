@@ -40,7 +40,7 @@ def test_garbage_value_falls_back_to_default():
 def test_crypto15m_knobs_clamped():
     c = merge_with_defaults({"crypto15m_entry_threshold": 1.5, "crypto15m_order_size": 0})
     assert c["crypto15m_entry_threshold"] == 1.0
-    assert c["crypto15m_order_size"] == 1
+    assert c["crypto15m_order_size"] == DEFAULT_CONFIG["crypto15m_order_size"]
 
 
 def test_crypto15m_maker_and_hours_knobs_clamped():
@@ -50,7 +50,7 @@ def test_crypto15m_maker_and_hours_knobs_clamped():
         "crypto15m_hours_start_utc": -5,
         "crypto15m_hours_end_utc": 99,
     })
-    assert c["crypto15m_entry_style"] == "maker"
+    assert c["crypto15m_entry_style"] == DEFAULT_CONFIG["crypto15m_entry_style"]
     assert c["crypto15m_maker_cancel_min"] == 15.0
     assert c["crypto15m_hours_start_utc"] == 0
     assert c["crypto15m_hours_end_utc"] == 24
