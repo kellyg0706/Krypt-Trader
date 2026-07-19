@@ -17,7 +17,7 @@ strategy("Krypt Trader - Kalshi 15m Matrix", overlay=true,
 // INPUTS (aligned with Krypt Trader crypto15m)
 // ==========================================
 
-dir_style   = input.string("Model - Settlement Sniper", "Direction Style",
+dir_style   = input.string("Favorite-Follow", "Direction Style",
      options=["Favorite-Follow", "Model - Settlement Sniper", "Contrarian Fade"],
      group="Direction & Windows")
 entry_win   = input.int(8, "Entry Window (Last N Mins of 15m Bracket)",
@@ -32,9 +32,9 @@ model_fm_p  = input.float(99.85, "Model Final-Minute Min Certainty (¢)",
 model_edge  = input.float(2.0, "Model Min Net Edge (¢)", minval=0.0, maxval=50.0,
      step=0.5, group="Direction & Windows")
 
-fav_min     = input.float(70.0, "Favorite ≥ (¢)", minval=1.0, maxval=99.0,
+fav_min     = input.float(75.0, "Favorite ≥ (¢)", minval=1.0, maxval=99.0,
      group="Price & Odds")
-skip_above  = input.float(98.0, "Skip / Entry Cap Above (¢)", minval=1.0, maxval=99.0,
+skip_above  = input.float(92.0, "Skip / Entry Cap Above (¢)", minval=1.0, maxval=99.0,
      group="Price & Odds")
 strict_thrs = input.bool(true, "Strict Entry Threshold (Hard Floor on Fill Price)",
      group="Price & Odds")
@@ -42,7 +42,7 @@ strict_thrs = input.bool(true, "Strict Entry Threshold (Hard Floor on Fill Price
 min_move    = input.float(0.0, "Min Move Δ (% From 15m Open)", step=0.01,
      group="Underlying Filters",
      tooltip="0 = off. Direction-aware: UP bets need +Δ, DOWN bets need −Δ.")
-use_techs   = input.bool(false, "Underlying MACD/RSI Enabled?",
+use_techs   = input.bool(true, "Underlying MACD/RSI Enabled?",
      group="Underlying Filters")
 min_rsi     = input.int(0, "Min RSI (0=off) [If Enabled]", minval=0, maxval=100,
      group="Underlying Filters")
@@ -67,11 +67,11 @@ stop_prof_s = input.float(500.0, "Stop at Profit ($/Session)", minval=0.0,
 
 ent_style   = input.string("Cross Spread (Taker)", "Entry Style",
      options=["Cross Spread (Taker)", "Rest at Bid (Maker)"], group="Execution")
-ent_markup  = input.float(1.0, "Entry Markup (¢, Taker)", step=0.5, group="Execution")
+ent_markup  = input.float(2.0, "Entry Markup (¢, Taker)", step=0.5, group="Execution")
 sz_by       = input.string("Fixed contract", "Bet Sized By",
      options=["Fixed contract", "% of Balance"], group="Execution")
-order_size  = input.int(10, "Order Size (Contracts)", minval=1, group="Execution")
-max_tot_15  = input.float(25.0, "Max Total 15-Minute Risk (% of Balance)",
+order_size  = input.int(55, "Order Size (Contracts)", minval=1, group="Execution")
+max_tot_15  = input.float(50.0, "Max Total 15-Minute Risk (% of Balance)",
      step=0.1, group="Execution")
 use_fees    = input.bool(true, "Apply Kalshi Taker Fee Model?", group="Execution")
 quote_lag   = input.float(0.15, "Simulated Quote Lag (0–1 toward 50¢)",
