@@ -151,7 +151,7 @@ sd_abs = not na(sigma_1m) and sigma_1m > 0 and close > 0 and not na(open_15m) ? 
 model_up = not na(sd_abs) and sd_abs > 0 ? norm_cdf((close - open_15m) / sd_abs) : na
 model_up_c = not na(model_up) ? model_up * 100.0 : na
 
-// Simulated book mid: model pulled toward 50¢ (quote lag). Model stays the “true” prob.
+// Simulated book mid: model pulled toward 50c (quote lag). Model stays the true prob.
 mkt_up_c = not na(model_up_c) ? clamp_cents(model_up_c * (1.0 - quote_lag) + 50.0 * quote_lag) : na
 up_mid_c = mkt_up_c
 down_mid_c = not na(mkt_up_c) ? clamp_cents(100.0 - mkt_up_c) : na
