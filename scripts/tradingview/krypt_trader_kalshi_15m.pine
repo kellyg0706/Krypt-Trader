@@ -1,4 +1,4 @@
-//@version=5
+//@version=6
 // Krypt Trader — Kalshi 15m Matrix (TradingView backtest helper)
 //
 // Chart: 1-minute crypto spot (e.g. COINBASE:BTCUSD / BTCUSDT).
@@ -8,78 +8,82 @@
 // session P&L, and win/loss are in the on-chart table + "Kalshi Cash Equity" plot.
 // Fills are estimated from a settlement-probability model (TradingView has no
 // Kalshi order book). Validate live settings on the in-app Backtest page too.
-strategy("Krypt Trader - Kalshi 15m Matrix", overlay=true,
-     initial_capital=1000, default_qty_type=strategy.fixed, default_qty_value=1,
-     pyramiding=0, process_orders_on_close=true, calc_on_every_tick=false,
-     max_labels_count=500, max_lines_count=100)
+//
+// v6 note: margin_long/short = 0 so chart markers can place on BTC/ETH with a
+// small initial_capital. Kalshi sizing uses the custom cash ledger, not TV margin.
+strategy("Krypt Trader - Kalshi 15m Matrix", overlay = true,
+     initial_capital = 1000, default_qty_type = strategy.fixed, default_qty_value = 1,
+     pyramiding = 0, process_orders_on_close = true, calc_on_every_tick = false,
+     margin_long = 0, margin_short = 0,
+     max_labels_count = 500, max_lines_count = 100)
 
 // ==========================================
 // INPUTS (aligned with Krypt Trader crypto15m)
 // ==========================================
 
-dir_style   = input.string("Favorite-Follow", "Direction Style",
-     options=["Favorite-Follow", "Model - Settlement Sniper", "Contrarian Fade"],
-     group="Direction & Windows")
-entry_win   = input.int(8, "Entry Window (Last N Mins of 15m Bracket)",
-     minval=1, maxval=14, group="Direction & Windows",
-     tooltip="Enter when minutes left ≤ this value. Favorite/Contrarian also require ≥ 1 min left.")
-allow_final = input.bool(true, "Model: Allow Final-Minute Sniper Entries?",
-     group="Direction & Windows")
-model_min_p = input.float(97.0, "Model Min Certainty (¢)", minval=50.0, maxval=99.9,
-     step=0.1, group="Direction & Windows")
-model_fm_p  = input.float(99.85, "Model Final-Minute Min Certainty (¢)",
-     minval=90.0, maxval=99.99, step=0.01, group="Direction & Windows")
-model_edge  = input.float(2.0, "Model Min Net Edge (¢)", minval=0.0, maxval=50.0,
-     step=0.5, group="Direction & Windows")
+string dir_style = input.string("Favorite-Follow", "Direction Style",
+     options = ["Favorite-Follow", "Model - Settlement Sniper", "Contrarian Fade"],
+     group = "Direction & Windows")
+int entry_win = input.int(8, "Entry Window (Last N Mins of 15m Bracket)",
+     minval = 1, maxval = 14, group = "Direction & Windows",
+     tooltip = "Enter when minutes left ≤ this value. Favorite/Contrarian also require ≥ 1 min left.")
+bool allow_final = input.bool(true, "Model: Allow Final-Minute Sniper Entries?",
+     group = "Direction & Windows")
+float model_min_p = input.float(97.0, "Model Min Certainty (¢)", minval = 50.0, maxval = 99.9,
+     step = 0.1, group = "Direction & Windows")
+float model_fm_p = input.float(99.85, "Model Final-Minute Min Certainty (¢)",
+     minval = 90.0, maxval = 99.99, step = 0.01, group = "Direction & Windows")
+float model_edge = input.float(2.0, "Model Min Net Edge (¢)", minval = 0.0, maxval = 50.0,
+     step = 0.5, group = "Direction & Windows")
 
-fav_min     = input.float(75.0, "Favorite ≥ (¢)", minval=1.0, maxval=99.0,
-     group="Price & Odds")
-skip_above  = input.float(92.0, "Skip / Entry Cap Above (¢)", minval=1.0, maxval=99.0,
-     group="Price & Odds")
-strict_thrs = input.bool(true, "Strict Entry Threshold (Hard Floor on Fill Price)",
-     group="Price & Odds")
+float fav_min = input.float(75.0, "Favorite ≥ (¢)", minval = 1.0, maxval = 99.0,
+     group = "Price & Odds")
+float skip_above = input.float(92.0, "Skip / Entry Cap Above (¢)", minval = 1.0, maxval = 99.0,
+     group = "Price & Odds")
+bool strict_thrs = input.bool(true, "Strict Entry Threshold (Hard Floor on Fill Price)",
+     group = "Price & Odds")
 
-min_move    = input.float(0.0, "Min Move Δ (% From 15m Open)", step=0.01,
-     group="Underlying Filters",
-     tooltip="0 = off. Direction-aware: UP bets need +Δ, DOWN bets need −Δ.")
-use_techs   = input.bool(true, "Underlying MACD/RSI Enabled?",
-     group="Underlying Filters")
-min_rsi     = input.int(0, "Min RSI (0=off) [If Enabled]", minval=0, maxval=100,
-     group="Underlying Filters")
-min_macd_h  = input.float(0.0, "Min MACD HIST (0=off) [If Enabled]", step=0.1,
-     group="Underlying Filters")
+float min_move = input.float(0.0, "Min Move Δ (% From 15m Open)", step = 0.01,
+     group = "Underlying Filters",
+     tooltip = "0 = off. Direction-aware: UP bets need +Δ, DOWN bets need −Δ.")
+bool use_techs = input.bool(true, "Underlying MACD/RSI Enabled?",
+     group = "Underlying Filters")
+int min_rsi = input.int(0, "Min RSI (0=off) [If Enabled]", minval = 0, maxval = 100,
+     group = "Underlying Filters")
+float min_macd_h = input.float(0.0, "Min MACD HIST (0=off) [If Enabled]", step = 0.1,
+     group = "Underlying Filters")
 
-use_sl      = input.bool(true, "Stop-Loss Enabled?", group="Risk")
-sl_cents    = input.float(15.0, "Stop-Loss Drop From Entry (¢)", minval=1.0, maxval=99.0,
-     group="Risk")
-stop_slip   = input.float(2.0, "Stop-Slippage Max (¢)", minval=0.0, maxval=50.0,
-     group="Risk")
-use_tp      = input.bool(false, "Take-Profit Enabled?", group="Risk")
-tp_cents    = input.float(95.0, "Take-Profit Target Price (¢)", minval=1.0, maxval=99.0,
-     group="Risk",
-     tooltip="Sell when held-side mid ≥ this absolute price (set above entry).")
-sl_pct      = input.float(0.0, "Emergency Spot Buffer Stop (%)", step=0.1, minval=0.0,
-     group="Risk", tooltip="0 = off.")
-max_loss_b  = input.float(2.0, "Max Loss/Bet (% of Balance)", step=0.1,
-     group="Risk")
-stop_prof_s = input.float(500.0, "Stop at Profit ($/Session)", minval=0.0,
-     group="Risk", tooltip="0 = off. Uses Kalshi session P&L, not Strategy Tester.")
+bool use_sl = input.bool(true, "Stop-Loss Enabled?", group = "Risk")
+float sl_cents = input.float(15.0, "Stop-Loss Drop From Entry (¢)", minval = 1.0, maxval = 99.0,
+     group = "Risk")
+float stop_slip = input.float(2.0, "Stop-Slippage Max (¢)", minval = 0.0, maxval = 50.0,
+     group = "Risk")
+bool use_tp = input.bool(false, "Take-Profit Enabled?", group = "Risk")
+float tp_cents = input.float(95.0, "Take-Profit Target Price (¢)", minval = 1.0, maxval = 99.0,
+     group = "Risk",
+     tooltip = "Sell when held-side mid ≥ this absolute price (set above entry).")
+float sl_pct = input.float(0.0, "Emergency Spot Buffer Stop (%)", step = 0.1, minval = 0.0,
+     group = "Risk", tooltip = "0 = off.")
+float max_loss_b = input.float(2.0, "Max Loss/Bet (% of Balance)", step = 0.1,
+     group = "Risk")
+float stop_prof_s = input.float(500.0, "Stop at Profit ($/Session)", minval = 0.0,
+     group = "Risk", tooltip = "0 = off. Uses Kalshi session P&L, not Strategy Tester.")
 
-ent_style   = input.string("Cross Spread (Taker)", "Entry Style",
-     options=["Cross Spread (Taker)", "Rest at Bid (Maker)"], group="Execution")
-ent_markup  = input.float(2.0, "Entry Markup (¢, Taker)", step=0.5, group="Execution")
-sz_by       = input.string("Fixed contract", "Bet Sized By",
-     options=["Fixed contract", "% of Balance"], group="Execution")
-order_size  = input.int(55, "Order Size (Contracts)", minval=1, group="Execution")
-max_tot_15  = input.float(50.0, "Max Total 15-Minute Risk (% of Balance)",
-     step=0.1, group="Execution")
-use_fees    = input.bool(true, "Apply Kalshi Taker Fee Model?", group="Execution")
-quote_lag   = input.float(0.15, "Simulated Quote Lag (0–1 toward 50¢)",
-     minval=0.0, maxval=0.9, step=0.01, group="Execution",
-     tooltip="TradingView has no Kalshi book. Market mids are model P pulled toward 50¢ by this fraction so Settlement Sniper can see positive edge when the model leads the quote.")
+string ent_style = input.string("Cross Spread (Taker)", "Entry Style",
+     options = ["Cross Spread (Taker)", "Rest at Bid (Maker)"], group = "Execution")
+float ent_markup = input.float(2.0, "Entry Markup (¢, Taker)", step = 0.5, group = "Execution")
+string sz_by = input.string("Fixed contract", "Bet Sized By",
+     options = ["Fixed contract", "% of Balance"], group = "Execution")
+int order_size = input.int(55, "Order Size (Contracts)", minval = 1, group = "Execution")
+float max_tot_15 = input.float(50.0, "Max Total 15-Minute Risk (% of Balance)",
+     step = 0.1, group = "Execution")
+bool use_fees = input.bool(true, "Apply Kalshi Taker Fee Model?", group = "Execution")
+float quote_lag = input.float(0.15, "Simulated Quote Lag (0–1 toward 50¢)",
+     minval = 0.0, maxval = 0.9, step = 0.01, group = "Execution",
+     tooltip = "TradingView has no Kalshi book. Market mids are model P pulled toward 50¢ by this fraction so Settlement Sniper can see positive edge when the model leads the quote.")
 
-show_bg     = input.bool(true, "Highlight Entry Window", group="Display")
-show_table  = input.bool(true, "Show Stats Table", group="Display")
+bool show_bg = input.bool(true, "Highlight Entry Window", group = "Display")
+bool show_table = input.bool(true, "Show Stats Table", group = "Display")
 
 // ==========================================
 // HELPERS
@@ -87,34 +91,33 @@ show_table  = input.bool(true, "Show Stats Table", group="Display")
 
 norm_cdf(float x) =>
     // Abramowitz & Stegun 26.2.17 approximation of Φ(x)
-    ax = math.abs(x)
-    t = 1.0 / (1.0 + 0.2316419 * ax)
-    d = 0.3989422804014327 * math.exp(-0.5 * ax * ax)
-    p = d * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))))
+    float ax = math.abs(x)
+    float t = 1.0 / (1.0 + 0.2316419 * ax)
+    float d = 0.3989422804014327 * math.exp(-0.5 * ax * ax)
+    float p = d * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))))
     x >= 0.0 ? 1.0 - p : p
 
 kalshi_fee_cents(float price_cents, int contracts) =>
-    // Total taker fee in cents for the order (ceil of 7% * C * p * (1-p) in $ → cents)
-    p = math.max(0.01, math.min(0.99, price_cents / 100.0))
-    raw = 0.07 * contracts * p * (1.0 - p) * 100.0
+    float p = math.max(0.01, math.min(0.99, price_cents / 100.0))
+    float raw = 0.07 * contracts * p * (1.0 - p) * 100.0
     int(math.ceil(raw))
 
 clamp_cents(float c) =>
     math.max(1.0, math.min(99.0, c))
 
 est_fill(float mid_c, string style, float markup) =>
-    raw = style == "Cross Spread (Taker)" ? mid_c + markup : mid_c - 1.0
+    float raw = style == "Cross Spread (Taker)" ? mid_c + markup : mid_c - 1.0
     clamp_cents(raw)
 
 calc_qty(float entry_px_c, float bal, string sizing, int fixed_n, float max_risk_pct, float max_loss_pct) =>
     int q = fixed_n
     if sizing == "% of Balance"
-        risk_cash = bal * (max_risk_pct / 100.0)
-        cost_each = entry_px_c / 100.0
-        q := cost_each > 0 ? int(math.floor(risk_cash / cost_each)) : 0
-    if max_loss_pct > 0 and entry_px_c > 0
-        max_cost = bal * (max_loss_pct / 100.0)
-        max_q = int(math.floor(max_cost / (entry_px_c / 100.0)))
+        float risk_cash = bal * (max_risk_pct / 100.0)
+        float cost_each = entry_px_c / 100.0
+        q := cost_each > 0.0 ? int(math.floor(risk_cash / cost_each)) : 0
+    if max_loss_pct > 0.0 and entry_px_c > 0.0
+        float max_cost = bal * (max_loss_pct / 100.0)
+        int max_q = int(math.floor(max_cost / (entry_px_c / 100.0)))
         q := math.min(q, max_q)
     math.max(0, q)
 
@@ -125,7 +128,9 @@ cents_to_usd(float cents) =>
 // 15-MINUTE WINDOW + INDICATORS
 // ==========================================
 
-is_new_15m = ta.change(time("15")) != 0
+// v6: comparisons with na must not feed a bool — coerce safely
+float chg15 = ta.change(time("15"))
+bool is_new_15m = not na(chg15) and chg15 != 0.0
 
 var float open_15m = na
 if barstate.isfirst and na(open_15m)
@@ -133,40 +138,38 @@ if barstate.isfirst and na(open_15m)
 if is_new_15m
     open_15m := open
 
-min_of_15m = minute % 15
-mins_left  = 15 - min_of_15m
-in_entry_window = mins_left <= entry_win and mins_left >= 1
-in_final_minute = mins_left == 1
+int min_of_15m = minute % 15
+int mins_left = 15 - min_of_15m
+bool in_entry_window = mins_left <= entry_win and mins_left >= 1
+bool in_final_minute = mins_left == 1
 
-rsi_val = ta.rsi(close, 14)
-[macdLine, macdSignal, macd_hist] = ta.macd(close, 12, 26, 9)
-ret_1m = bar_index > 0 and close[1] > 0 ? math.log(close / close[1]) : 0.0
-sigma_1m = ta.stdev(ret_1m, 60)
+float rsi_val = ta.rsi(close, 14)
+[float macdLine, float macdSignal, float macd_hist] = ta.macd(close, 12, 26, 9)
+float ret_1m = bar_index > 0 and close[1] > 0 ? math.log(close / close[1]) : 0.0
+float sigma_1m = ta.stdev(ret_1m, 60)
 
-pct_move_from_open = not na(open_15m) and open_15m > 0 ? ((close - open_15m) / open_15m) * 100.0 : 0.0
+float pct_move_from_open = not na(open_15m) and open_15m > 0.0 ? ((close - open_15m) / open_15m) * 100.0 : 0.0
 
-// Terminal-spot model P(up) — proxy for Krypt's settlement model (no CF index here)
-t_eff = math.max(0.05, mins_left)
-sd_abs = not na(sigma_1m) and sigma_1m > 0 and close > 0 and not na(open_15m) ? sigma_1m * math.sqrt(t_eff) * close : na
-model_up = not na(sd_abs) and sd_abs > 0 ? norm_cdf((close - open_15m) / sd_abs) : na
-model_up_c = not na(model_up) ? model_up * 100.0 : na
+float t_eff = math.max(0.05, mins_left)
+float sd_abs = not na(sigma_1m) and sigma_1m > 0.0 and close > 0.0 and not na(open_15m) ? sigma_1m * math.sqrt(t_eff) * close : na
+float model_up = not na(sd_abs) and sd_abs > 0.0 ? norm_cdf((close - open_15m) / sd_abs) : na
+float model_up_c = not na(model_up) ? model_up * 100.0 : na
 
-// Simulated book mid: model pulled toward 50c (quote lag). Model stays the true prob.
-mkt_up_c = not na(model_up_c) ? clamp_cents(model_up_c * (1.0 - quote_lag) + 50.0 * quote_lag) : na
-up_mid_c = mkt_up_c
-down_mid_c = not na(mkt_up_c) ? clamp_cents(100.0 - mkt_up_c) : na
+float mkt_up_c = not na(model_up_c) ? clamp_cents(model_up_c * (1.0 - quote_lag) + 50.0 * quote_lag) : na
+float up_mid_c = mkt_up_c
+float down_mid_c = not na(mkt_up_c) ? clamp_cents(100.0 - mkt_up_c) : na
 
-fav_is_up = not na(mkt_up_c) ? mkt_up_c >= 50.0 : (not na(open_15m) and close >= open_15m)
-fav_prob_c = not na(mkt_up_c) ? (fav_is_up ? mkt_up_c : 100.0 - mkt_up_c) : na
+bool fav_is_up = not na(mkt_up_c) ? mkt_up_c >= 50.0 : (not na(open_15m) and close >= open_15m)
+float fav_prob_c = not na(mkt_up_c) ? (fav_is_up ? mkt_up_c : 100.0 - mkt_up_c) : na
 
 // ==========================================
 // DIRECTION + FILTERS
 // ==========================================
 
 string buy_side = na
-float  side_mid = na
-float  fill_c = na
-float  side_model_c = na
+float side_mid = na
+float fill_c = na
+float side_model_c = na
 
 if dir_style == "Model - Settlement Sniper" and not na(model_up)
     buy_side := model_up >= 0.5 ? "UP" : "DOWN"
@@ -184,31 +187,29 @@ else if dir_style == "Contrarian Fade" and not na(fav_prob_c)
     side_mid := buy_side == "UP" ? up_mid_c : down_mid_c
     fill_c := est_fill(side_mid, ent_style, ent_markup)
 
-buying_up = buy_side == "UP"
+bool buying_up = buy_side == "UP"
 
-move_ok = min_move <= 0.0 or (buying_up ? pct_move_from_open >= min_move : pct_move_from_open <= -min_move)
+bool move_ok = min_move <= 0.0 or (buying_up ? pct_move_from_open >= min_move : pct_move_from_open <= -min_move)
 
-tech_ok = true
+bool tech_ok = true
 if use_techs
-    rsi_ok = min_rsi <= 0 or (buying_up ? rsi_val >= min_rsi : rsi_val <= (100 - min_rsi))
-    macd_ok = min_macd_h <= 0.0 or (buying_up ? macd_hist >= min_macd_h : macd_hist <= -min_macd_h)
+    bool rsi_ok = min_rsi <= 0 or (buying_up ? rsi_val >= min_rsi : rsi_val <= (100 - min_rsi))
+    bool macd_ok = min_macd_h <= 0.0 or (buying_up ? macd_hist >= min_macd_h : macd_hist <= -min_macd_h)
     tech_ok := rsi_ok and macd_ok and not na(rsi_val) and not na(macd_hist)
 
-odds_ok = not na(fill_c) and not na(side_mid)
+bool odds_ok = not na(fill_c) and not na(side_mid)
 if odds_ok
     if dir_style == "Model - Settlement Sniper"
         odds_ok := fill_c <= skip_above
     else if dir_style == "Contrarian Fade"
-        // Extreme favorite required; buy the cheap opposite (no strict floor on fill)
         odds_ok := not na(fav_prob_c) and fav_prob_c >= fav_min and fill_c <= skip_above
     else
-        // Favorite-Follow: optional hard floor on the price actually paid
         odds_ok := not na(fav_prob_c) and fav_prob_c >= fav_min and fill_c <= skip_above and (not strict_thrs or fill_c >= fav_min)
 
-model_gate_ok = true
+bool model_gate_ok = true
 if dir_style == "Model - Settlement Sniper"
-    fee1 = use_fees and not na(fill_c) ? kalshi_fee_cents(fill_c, 1) : 0
-    edge_c = not na(side_model_c) and not na(fill_c) ? side_model_c - fill_c - fee1 : na
+    int fee1 = use_fees and not na(fill_c) ? kalshi_fee_cents(fill_c, 1) : 0
+    float edge_c = not na(side_model_c) and not na(fill_c) ? side_model_c - fill_c - fee1 : na
     if in_final_minute
         model_gate_ok := allow_final and not na(side_model_c) and side_model_c >= model_fm_p and not na(edge_c) and edge_c >= model_edge
     else
@@ -222,45 +223,45 @@ else
 
 var float cash = strategy.initial_capital
 var float session_pnl = 0.0
-var int   wins = 0
-var int   losses = 0
-var int   entries_n = 0
+var int wins = 0
+var int losses = 0
+var int entries_n = 0
 
-var bool   in_pos = false
+var bool in_pos = false
 var string pos_side = na
-var float  pos_entry_c = na
-var int    pos_qty = 0
-var float  pos_fee_c = 0.0
-var float  pos_entry_spot = na
-var float  pos_win_open = na
-var bool   entered_this_window = false
+var float pos_entry_c = na
+var int pos_qty = 0
+var float pos_fee_c = 0.0
+var float pos_entry_spot = na
+var float pos_win_open = na
+var bool entered_this_window = false
 
 if is_new_15m
     entered_this_window := false
 
-portfolio_ok = stop_prof_s <= 0.0 or session_pnl < stop_prof_s
+bool portfolio_ok = stop_prof_s <= 0.0 or session_pnl < stop_prof_s
 
 // ==========================================
 // SETTLE AT 15m BOUNDARY (binary 0 / 100)
 // ==========================================
 
-settle_now = is_new_15m and in_pos and not na(pos_win_open)
+bool settle_now = is_new_15m and in_pos and not na(pos_win_open)
 if settle_now
-    finished_up = close[1] >= pos_win_open
-    won = (pos_side == "UP" and finished_up) or (pos_side == "DOWN" and not finished_up)
-    payout_usd = won ? float(pos_qty) : 0.0
-    cost_usd = cents_to_usd(pos_entry_c * pos_qty + pos_fee_c)
-    pnl = payout_usd - cost_usd
+    bool finished_up = close[1] >= pos_win_open
+    bool won = (pos_side == "UP" and finished_up) or (pos_side == "DOWN" and not finished_up)
+    float payout_usd = won ? float(pos_qty) : 0.0
+    float cost_usd = cents_to_usd(pos_entry_c * pos_qty + pos_fee_c)
+    float pnl = payout_usd - cost_usd
     cash += payout_usd
     session_pnl += pnl
     if won
         wins += 1
     else
         losses += 1
-    strategy.close_all(comment="Settle " + pos_side + (won ? " WIN +" : " LOSS ") + str.tostring(pnl, "#.2"))
+    strategy.close_all(comment = "Settle " + pos_side + (won ? " WIN +" : " LOSS ") + str.tostring(pnl, "#.2"))
     label.new(bar_index, high, (won ? "WIN $" : "LOSS $") + str.tostring(pnl, "#.2"),
-         style=label.style_label_down, textcolor=color.white,
-         color=won ? color.new(color.teal, 0) : color.new(color.red, 0), size=size.tiny)
+         style = label.style_label_down, textcolor = color.white,
+         color = won ? color.new(color.teal, 0) : color.new(color.red, 0), size = size.tiny)
     in_pos := false
     pos_side := na
     pos_entry_c := na
@@ -274,7 +275,7 @@ if settle_now
 // ==========================================
 
 if in_pos and not is_new_15m and not na(up_mid_c)
-    held_mid = pos_side == "UP" ? up_mid_c : down_mid_c
+    float held_mid = pos_side == "UP" ? up_mid_c : down_mid_c
     float exit_c = na
     string exit_why = ""
 
@@ -284,25 +285,25 @@ if in_pos and not is_new_15m and not na(up_mid_c)
     if use_sl and (pos_entry_c - held_mid) >= sl_cents
         exit_c := clamp_cents(held_mid - stop_slip)
         exit_why := "SL"
-    if sl_pct > 0 and not na(pos_entry_spot) and pos_entry_spot > 0
-        spot_chg = ((close - pos_entry_spot) / pos_entry_spot) * 100.0
-        against = pos_side == "UP" ? spot_chg <= -sl_pct : spot_chg >= sl_pct
+    if sl_pct > 0.0 and not na(pos_entry_spot) and pos_entry_spot > 0.0
+        float spot_chg = ((close - pos_entry_spot) / pos_entry_spot) * 100.0
+        bool against = pos_side == "UP" ? spot_chg <= -sl_pct : spot_chg >= sl_pct
         if against
             exit_c := clamp_cents(held_mid - stop_slip)
             exit_why := "SpotSL"
 
     if not na(exit_c)
-        fee_exit = use_fees and ent_style == "Cross Spread (Taker)" ? kalshi_fee_cents(exit_c, pos_qty) : 0
-        proceeds_usd = cents_to_usd(exit_c * pos_qty - fee_exit)
-        cost_usd = cents_to_usd(pos_entry_c * pos_qty + pos_fee_c)
-        pnl = proceeds_usd - cost_usd
+        int fee_exit = use_fees and ent_style == "Cross Spread (Taker)" ? kalshi_fee_cents(exit_c, pos_qty) : 0
+        float proceeds_usd = cents_to_usd(exit_c * pos_qty - fee_exit)
+        float cost_usd = cents_to_usd(pos_entry_c * pos_qty + pos_fee_c)
+        float pnl = proceeds_usd - cost_usd
         cash += proceeds_usd
         session_pnl += pnl
-        if pnl >= 0
+        if pnl >= 0.0
             wins += 1
         else
             losses += 1
-        strategy.close_all(comment=exit_why + " @" + str.tostring(exit_c, "#.0") + "¢ PnL $" + str.tostring(pnl, "#.2"))
+        strategy.close_all(comment = exit_why + " @" + str.tostring(exit_c, "#.0") + "c PnL $" + str.tostring(pnl, "#.2"))
         in_pos := false
         pos_side := na
         pos_entry_c := na
@@ -315,13 +316,13 @@ if in_pos and not is_new_15m and not na(up_mid_c)
 // ENTRIES (one per 15m window)
 // ==========================================
 
-time_ok = dir_style == "Model - Settlement Sniper" ? (in_entry_window or (in_final_minute and allow_final)) : in_entry_window
-entry_signal = time_ok and model_gate_ok and move_ok and tech_ok and odds_ok and portfolio_ok and not in_pos and not entered_this_window and not na(buy_side) and not na(fill_c)
+bool time_ok = dir_style == "Model - Settlement Sniper" ? (in_entry_window or (in_final_minute and allow_final)) : in_entry_window
+bool entry_signal = time_ok and model_gate_ok and move_ok and tech_ok and odds_ok and portfolio_ok and not in_pos and not entered_this_window and not na(buy_side) and not na(fill_c)
 
 if entry_signal
-    qty = calc_qty(fill_c, cash, sz_by, order_size, max_tot_15, max_loss_b)
-    fee = use_fees and ent_style == "Cross Spread (Taker)" ? kalshi_fee_cents(fill_c, qty) : 0
-    cost_usd = cents_to_usd(fill_c * qty + fee)
+    int qty = calc_qty(fill_c, cash, sz_by, order_size, max_tot_15, max_loss_b)
+    int fee = use_fees and ent_style == "Cross Spread (Taker)" ? kalshi_fee_cents(fill_c, qty) : 0
+    float cost_usd = cents_to_usd(fill_c * qty + fee)
     if qty > 0 and cost_usd <= cash and fill_c <= skip_above
         cash -= cost_usd
         in_pos := true
@@ -335,50 +336,50 @@ if entry_signal
         entries_n += 1
         // Chart markers only — underlying Strategy Tester P&L is not Kalshi P&L
         if buy_side == "UP"
-            strategy.entry("Kalshi_UP", strategy.long, qty=1, comment="UP @" + str.tostring(fill_c, "#.0") + "¢ x" + str.tostring(qty))
+            strategy.entry("Kalshi_UP", strategy.long, qty = 1, comment = "UP @" + str.tostring(fill_c, "#.0") + "c x" + str.tostring(qty))
         else
-            strategy.entry("Kalshi_DOWN", strategy.short, qty=1, comment="DOWN @" + str.tostring(fill_c, "#.0") + "¢ x" + str.tostring(qty))
+            strategy.entry("Kalshi_DOWN", strategy.short, qty = 1, comment = "DOWN @" + str.tostring(fill_c, "#.0") + "c x" + str.tostring(qty))
 
 // ==========================================
 // DISPLAY
 // ==========================================
 
-plot(open_15m, "15m Open / Strike Proxy", color=color.new(color.orange, 0), style=plot.style_linebr, linewidth=1)
+plot(open_15m, "15m Open / Strike Proxy", color = color.new(color.orange, 0), style = plot.style_linebr, linewidth = 1)
 bgcolor(show_bg and in_entry_window and not in_pos ? color.new(color.teal, 92) : na)
-plotshape(entry_signal and buying_up, title="UP Entry", style=shape.triangleup, location=location.belowbar, color=color.teal, size=size.tiny)
-plotshape(entry_signal and not buying_up, title="DOWN Entry", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny)
+plotshape(entry_signal and buying_up, title = "UP Entry", style = shape.triangleup, location = location.belowbar, color = color.teal, size = size.tiny)
+plotshape(entry_signal and not buying_up, title = "DOWN Entry", style = shape.triangledown, location = location.abovebar, color = color.red, size = size.tiny)
 
 var float peak_cash = strategy.initial_capital
 peak_cash := math.max(peak_cash, cash)
-dd = peak_cash > 0 ? (peak_cash - cash) / peak_cash * 100.0 : 0.0
+float dd = peak_cash > 0.0 ? (peak_cash - cash) / peak_cash * 100.0 : 0.0
 
 var table t = na
 if show_table and barstate.islast
     if na(t)
-        t := table.new(position.top_right, 2, 12, bgcolor=color.new(color.black, 25), border_width=1)
-    table.cell(t, 0, 0, "Krypt / Kalshi 15m", text_color=color.white, text_size=size.small)
-    table.cell(t, 1, 0, dir_style, text_color=color.aqua, text_size=size.small)
-    table.cell(t, 0, 1, "Kalshi Cash", text_color=color.gray, text_size=size.small)
-    table.cell(t, 1, 1, "$" + str.tostring(cash, "#.2"), text_color=color.white, text_size=size.small)
-    table.cell(t, 0, 2, "Session PnL", text_color=color.gray, text_size=size.small)
-    table.cell(t, 1, 2, "$" + str.tostring(session_pnl, "#.2"), text_color=session_pnl >= 0 ? color.lime : color.red, text_size=size.small)
-    table.cell(t, 0, 3, "W / L", text_color=color.gray, text_size=size.small)
-    table.cell(t, 1, 3, str.tostring(wins) + " / " + str.tostring(losses), text_color=color.white, text_size=size.small)
-    table.cell(t, 0, 4, "Entries", text_color=color.gray, text_size=size.small)
-    table.cell(t, 1, 4, str.tostring(entries_n), text_color=color.white, text_size=size.small)
-    table.cell(t, 0, 5, "Mins Left", text_color=color.gray, text_size=size.small)
-    table.cell(t, 1, 5, str.tostring(mins_left), text_color=color.white, text_size=size.small)
-    table.cell(t, 0, 6, "Δ from Open", text_color=color.gray, text_size=size.small)
-    table.cell(t, 1, 6, str.tostring(pct_move_from_open, "#.###") + "%", text_color=color.white, text_size=size.small)
-    table.cell(t, 0, 7, "Model P(up)", text_color=color.gray, text_size=size.small)
-    table.cell(t, 1, 7, na(model_up_c) ? "—" : str.tostring(model_up_c, "#.1") + "¢", text_color=color.white, text_size=size.small)
-    table.cell(t, 0, 8, "Est Fill", text_color=color.gray, text_size=size.small)
-    table.cell(t, 1, 8, na(fill_c) ? "—" : buy_side + " " + str.tostring(fill_c, "#.0") + "¢", text_color=color.white, text_size=size.small)
-    table.cell(t, 0, 9, "Position", text_color=color.gray, text_size=size.small)
-    table.cell(t, 1, 9, in_pos ? pos_side + " x" + str.tostring(pos_qty) + " @" + str.tostring(pos_entry_c, "#.0") + "¢" : "flat", text_color=in_pos ? color.yellow : color.gray, text_size=size.small)
-    table.cell(t, 0, 10, "Max DD", text_color=color.gray, text_size=size.small)
-    table.cell(t, 1, 10, str.tostring(dd, "#.2") + "%", text_color=color.orange, text_size=size.small)
-    table.cell(t, 0, 11, "Chart TF", text_color=color.gray, text_size=size.small)
-    table.cell(t, 1, 11, timeframe.period == "1" ? "1m OK" : "USE 1m CHART", text_color=timeframe.period == "1" ? color.lime : color.red, text_size=size.small)
+        t := table.new(position.top_right, 2, 12, bgcolor = color.new(color.black, 25), border_width = 1)
+    table.cell(t, 0, 0, "Krypt / Kalshi 15m", text_color = color.white, text_size = size.small)
+    table.cell(t, 1, 0, dir_style, text_color = color.aqua, text_size = size.small)
+    table.cell(t, 0, 1, "Kalshi Cash", text_color = color.gray, text_size = size.small)
+    table.cell(t, 1, 1, "$" + str.tostring(cash, "#.2"), text_color = color.white, text_size = size.small)
+    table.cell(t, 0, 2, "Session PnL", text_color = color.gray, text_size = size.small)
+    table.cell(t, 1, 2, "$" + str.tostring(session_pnl, "#.2"), text_color = session_pnl >= 0 ? color.lime : color.red, text_size = size.small)
+    table.cell(t, 0, 3, "W / L", text_color = color.gray, text_size = size.small)
+    table.cell(t, 1, 3, str.tostring(wins) + " / " + str.tostring(losses), text_color = color.white, text_size = size.small)
+    table.cell(t, 0, 4, "Entries", text_color = color.gray, text_size = size.small)
+    table.cell(t, 1, 4, str.tostring(entries_n), text_color = color.white, text_size = size.small)
+    table.cell(t, 0, 5, "Mins Left", text_color = color.gray, text_size = size.small)
+    table.cell(t, 1, 5, str.tostring(mins_left), text_color = color.white, text_size = size.small)
+    table.cell(t, 0, 6, "Δ from Open", text_color = color.gray, text_size = size.small)
+    table.cell(t, 1, 6, str.tostring(pct_move_from_open, "#.###") + "%", text_color = color.white, text_size = size.small)
+    table.cell(t, 0, 7, "Model P(up)", text_color = color.gray, text_size = size.small)
+    table.cell(t, 1, 7, na(model_up_c) ? "-" : str.tostring(model_up_c, "#.1") + "c", text_color = color.white, text_size = size.small)
+    table.cell(t, 0, 8, "Est Fill", text_color = color.gray, text_size = size.small)
+    table.cell(t, 1, 8, na(fill_c) ? "-" : buy_side + " " + str.tostring(fill_c, "#.0") + "c", text_color = color.white, text_size = size.small)
+    table.cell(t, 0, 9, "Position", text_color = color.gray, text_size = size.small)
+    table.cell(t, 1, 9, in_pos ? pos_side + " x" + str.tostring(pos_qty) + " @" + str.tostring(pos_entry_c, "#.0") + "c" : "flat", text_color = in_pos ? color.yellow : color.gray, text_size = size.small)
+    table.cell(t, 0, 10, "Max DD", text_color = color.gray, text_size = size.small)
+    table.cell(t, 1, 10, str.tostring(dd, "#.2") + "%", text_color = color.orange, text_size = size.small)
+    table.cell(t, 0, 11, "Chart TF", text_color = color.gray, text_size = size.small)
+    table.cell(t, 1, 11, timeframe.period == "1" ? "1m OK" : "USE 1m CHART", text_color = timeframe.period == "1" ? color.lime : color.red, text_size = size.small)
 
-plot(cash, "Kalshi Cash Equity", color=color.new(color.aqua, 0), linewidth=2, display=display.pane)
+plot(cash, "Kalshi Cash Equity", color = color.new(color.aqua, 0), linewidth = 2, display = display.pane)
